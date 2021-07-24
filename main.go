@@ -14,7 +14,6 @@ type model struct {
 	content       string
 	ready         bool
 	leftViewport  viewport.Model
-	rightViewport viewport.Model
 	spinner       spinner.Model
 }
 
@@ -45,17 +44,12 @@ func initViewPort(width int, height int, content string) viewport.Model {
 	return v
 }
 
-// func resizeViewPort(v viewport.Model, width int, height int) {
-// 	v.Height = height
-// 	v.Width = width
-// }
-
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
 		leftCmd  tea.Cmd
-		rightCmd tea.Cmd
 		cmds     []tea.Cmd
 	)
+	
 	switch msg := msg.(type) {
 
 	// Is it a key press?
@@ -70,6 +64,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.WindowSizeMsg:
+		m.content = fmt.Sprintf("%d %d", msg.Height, msg.Width)
+
 		verticalMargins := headerHeight + footerHeight
 		height := msg.Height - verticalMargins
 		sideWidth := msg.Width / 2
@@ -81,25 +77,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// quickly, though asynchronously, which is why we wait for them
 			// here.
 			m.leftViewport = initViewPort(sideWidth, height, m.content)
-			m.rightViewport = initViewPort(sideWidth, height, m.content)
-
 			m.ready = true
 		} else {
 			height := msg.Height - verticalMargins
 
-			m.leftViewport.Width = msg.Width
-			m.leftViewport.Height = height
+			c := ""
+
+			for i := 0; i < height; i++ {
+				c += "|\n"
+			}
 
 			m.leftViewport.Width = msg.Width
 			m.leftViewport.Height = height
+			m.leftViewport.SetContent(c)
 		}
+
 
 		if useHighPerformanceRenderer {
 			// Render (or re-render) the whole viewport. Necessary both to
 			// initialize the viewport and when the window is resized.
 			//
 			// This is needed for high-performance rendering only.
-			cmds = append(cmds, viewport.Sync(m.leftViewport), viewport.Sync(m.rightViewport))
+			cmds = append(cmds, viewport.Sync(m.leftViewport))
 		}
 	}
 
@@ -110,9 +109,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// * Returns commands to the Bubble Tea runtime
 	//
 	m.leftViewport, leftCmd = m.leftViewport.Update(msg)
-	m.rightViewport, rightCmd = m.leftViewport.Update(msg)
 	if useHighPerformanceRenderer {
-		cmds = append(cmds, leftCmd, rightCmd)
+		cmds = append(cmds, leftCmd)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -127,7 +125,7 @@ func (m model) View() string {
 	footer := "|-------------------------------------|"
 
 	// Send the UI for rendering
-	return fmt.Sprintf("%s\n%s\n%s\n%s", header, m.leftViewport.View(), m.rightViewport.View(), footer)
+	return fmt.Sprintf("%s\n%s\n%s", header, m.leftViewport.View(), footer)
 }
 
 func main() {
@@ -136,9 +134,9 @@ func main() {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
 	content := ""
-	for i := 0; i < 13; i++ {
-		content += fmt.Sprintf("%d\n", i)
-	}
+	// for i := 0; i < 13; i++ {
+	// 	content += fmt.Sprintf("%d\n", i)
+	// }
 	var initialModel = model{
 		content: content,
 		spinner: s,
