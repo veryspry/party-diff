@@ -3,11 +3,16 @@ package main
 import (
 	"fmt"
 	"os"
+	"bufio"
+	"strconv"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/waigani/diffparser"
+	"github.com/sourcegraph/go-diff/diff"
+
 )
 
 type model struct {
@@ -64,7 +69,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.WindowSizeMsg:
-		m.content = fmt.Sprintf("%d %d", msg.Height, msg.Width)
+		// m.content = fmt.Sprintf("%d %d", msg.Height, msg.Width)
 
 		verticalMargins := headerHeight + footerHeight
 		height := msg.Height - verticalMargins
@@ -82,14 +87,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			height := msg.Height - verticalMargins
 
 			c := ""
-
 			for i := 0; i < height; i++ {
 				c += "|\n"
 			}
 
 			m.leftViewport.Width = msg.Width
 			m.leftViewport.Height = height
-			m.leftViewport.SetContent(c)
+			// m.leftViewport.SetContent(c)
 		}
 
 
@@ -105,9 +109,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Because we're using the viewport's default update function (with pager-
 	// style navigation) it's important that the viewport's update function:
 	//
-	// * Receives messages from the Bubble Tea runtime
-	// * Returns commands to the Bubble Tea runtime
-	//
+	// 1. Receives messages from the Bubble Tea runtime
+	// 2. Returns commands to the Bubble Tea runtime
 	m.leftViewport, leftCmd = m.leftViewport.Update(msg)
 	if useHighPerformanceRenderer {
 		cmds = append(cmds, leftCmd)
@@ -124,19 +127,127 @@ func (m model) View() string {
 	header := "|-------------------------------------|"
 	footer := "|-------------------------------------|"
 
-	// Send the UI for rendering
+	// Send to the UI for rendering
 	return fmt.Sprintf("%s\n%s\n%s", header, m.leftViewport.View(), footer)
 }
 
+func removedLine(content string) string {
+	return lipgloss.NewStyle().
+		// red text
+		Foreground(lipgloss.Color("#e23868")).
+		Render(content)
+}
+
+func newLine(content string) string {
+	return lipgloss.NewStyle().
+		// blue text
+		Foreground(lipgloss.Color("#04B575")).
+		Render(content)
+}
+
+func parseStdIn() string {
+	// git diff output info
+	// https://stackoverflow.com/questions/2529441/how-to-read-the-output-from-git-diff
+
+	/**
+	 * deleted - show on left
+	 * added - show on right
+	 * modified - show on both sides
+	 */
+
+	scanner := bufio.NewScanner(os.Stdin)
+	content := ""
+
+	inputStr := ""
+
+	diffBytes := make([]byte, 0)
+	
+	for {
+		scanner.Scan()
+		text := scanner.Text()
+		b := scanner.Bytes()
+		err := scanner.Err()
+
+		if err != nil {
+			panic(err)
+		}
+
+		if len(text) == 0 || len(b) == 0 {
+			break
+		}
+
+		diffBytes = append(diffBytes, b...)	
+
+		inputStr += text
+		inputStr += "\n"
+	}
+
+	d, err := diff.ParseMultiFileDiff(diffBytes)
+	fmt.Println("new stuff start")
+	fmt.Println(string(diffBytes))
+	fmt.Println()
+	fmt.Println("new stuff end")
+
+	if err != nil {
+		panic(err)
+	}
+
+		
+	diff, err := diffparser.Parse(inputStr)
+
+	if err != nil {
+		panic(err)
+	}
+
+	for _, file := range diff.Files {
+		// content += file.DiffHeader
+		// content += "\n"
+				
+		for _, hunk := range file.Hunks {
+			lines := hunk.WholeRange
+			o := hunk.OrigRange
+			n := hunk.NewRange
+			fmt.Println(lines.Start, lines.Length)
+			fmt.Println(o.Start, o.Length)
+			fmt.Println(n.Start, n.Length)
+			fmt.Println("--------")
+
+			content += strconv.Itoa(lines.Start)
+			content += ", "
+			content += strconv.Itoa(lines.Length)
+			content += "\n"
+
+				
+			for _, line := range lines.Lines {
+
+				content += strconv.Itoa(line.Position)
+				switch line.Mode {
+				case 0:
+					// deleted
+					content += removedLine(line.Content)
+					content += "\n"
+				case 1:
+					// modified
+				case 2:
+					// created
+					content += newLine(line.Content)
+					content += "\n"
+					
+				}
+			}
+		}
+	}
+
+	return content
+}
+
 func main() {
+	content := parseStdIn()
+
 	s := spinner.NewModel()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
-	content := ""
-	// for i := 0; i < 13; i++ {
-	// 	content += fmt.Sprintf("%d\n", i)
-	// }
 	var initialModel = model{
 		content: content,
 		spinner: s,
